@@ -60,6 +60,10 @@ def main():
             row[c] = w[c]
         merged.append(row)
 
+    # Sort by state (alphabetical), then date (chronological) within each
+    # state -- easier to browse/verify by hand than date-primary ordering.
+    merged.sort(key=lambda r: (r["state"], r["date"]))
+
     out_cols = ["date", "state", "energy_mu"] + weather_cols
     with open(args.out, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=out_cols)

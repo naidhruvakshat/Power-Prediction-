@@ -263,6 +263,14 @@ def main():
             + (f"  [{warning}]" if warning else "")
         )
 
+    # IMPORTANT: files were processed in alphabetical filename order (e.g.
+    # "010424" then "010724"), which is NOT chronological -- filenames start
+    # with the day, not the year, so plain string sort scrambles the row
+    # order. Sort the actual output rows by (state, date) before writing --
+    # grouped alphabetically by state, chronological within each state --
+    # regardless of the order files were processed in.
+    all_rows.sort(key=lambda r: (r[1], r[0]))
+
     with open(args.out, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["date", "state", "energy_mu", "week_start", "week_end", "source_file"])
