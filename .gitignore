@@ -19,3 +19,9 @@ Thumbs.db
 
 # Large raw downloads (reproducible via pipeline scripts)
 electricity_demand_forecast/data/raw/weekly_reports/*.pdf
+
+# Raw source dumps -- 750MB+ of manually-downloaded xlsx files (SCADA +
+# IEX Market Snapshots). Too large for git; kept locally only. The
+# processed/derived outputs in national_price_model/data/processed/ are
+# tracked instead.
+Audit/
