@@ -32,6 +32,17 @@ WHY LAGS ARE COMPUTED PER MARKET_TYPE:
   row into a DAM row would be comparing unrelated series. Each market's
   rows are sorted by timestamp and shifted independently.
 
+WHY LAGS ARE LOOKED UP BY EXACT TIMESTAMP, NOT BY COUNTING ROWS BACK:
+  The first version of this script computed "1 week ago" by walking back
+  96*7 POSITIONS in the sorted list -- which is only correct if the series
+  has no gaps. It doesn't: DAM is missing all of 2023, and RTM/GDAM are
+  each missing a month. For the rows right after a gap, counting back a
+  fixed number of positions lands on a real row, but one from over a year
+  before the gap -- silently mislabeled as "last week." Fixed by computing
+  the actual target timestamp (current time minus 15 min / 1 day / 1 week)
+  and looking it up directly; if that exact timestamp isn't in the data,
+  the lag is left blank rather than substituting a wrong value.
+
 WEATHER COVERAGE CAVEAT (documented, not silently patched):
   The price dataset spans 2022-04-01 to 2025-06-24. The weather data we
   have (from the demand-forecast project) only covers 2024-04-01 to
@@ -53,7 +64,7 @@ import csv
 import math
 import time
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import holidays
@@ -173,16 +184,24 @@ def main():
     for r in rows:
         by_market[r["market_type"]].append(r)
 
-    LAG_SPECS = [("1block", 1), ("1day", 96), ("1week", 96 * 7)]
+    LAG_SPECS = [("1block", timedelta(minutes=15)), ("1day", timedelta(days=1)), ("1week", timedelta(weeks=1))]
     for market, group in by_market.items():
         group.sort(key=lambda r: r["timestamp"])
-        mcp_series = [float(r["mcp_rs_mwh"]) for r in group]
-        netload_series = [float(r["net_load_mw"]) for r in group]
-        for i, r in enumerate(group):
-            for label, offset in LAG_SPECS:
-                r[f"mcp_lag_{label}"] = mcp_series[i - offset] if i - offset >= 0 else ""
-                r[f"net_load_lag_{label}"] = netload_series[i - offset] if i - offset >= 0 else ""
-        print(f"{market}: {len(group)} rows, lags computed", flush=True)
+        mcp_by_ts = {r["timestamp"]: float(r["mcp_rs_mwh"]) for r in group}
+        netload_by_ts = {r["timestamp"]: float(r["net_load_mw"]) for r in group}
+        n_gap_hits = {label: 0 for label, _ in LAG_SPECS}
+        for r in group:
+            ts = datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S")
+            for label, delta in LAG_SPECS:
+                target = (ts - delta).strftime("%Y-%m-%d %H:%M:%S")
+                if target in mcp_by_ts:
+                    r[f"mcp_lag_{label}"] = mcp_by_ts[target]
+                    r[f"net_load_lag_{label}"] = netload_by_ts[target]
+                else:
+                    r[f"mcp_lag_{label}"] = ""
+                    r[f"net_load_lag_{label}"] = ""
+                    n_gap_hits[label] += 1
+        print(f"{market}: {len(group)} rows, lags computed (blank due to no exact match: {n_gap_hits})", flush=True)
 
     # Each market's group is already timestamp-sorted from the lag step
     # above -- write market-by-market (alphabetical) instead of flattening
